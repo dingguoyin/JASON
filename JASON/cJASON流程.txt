@@ -1,0 +1,83 @@
+  
+  /* cJSON 类型 */
+#define cJSON_False 0
+#define cJSON_True 1
+#define cJSON_NULL 2
+#define cJSON_Number 3
+#define cJSON_String 4
+#define cJSON_Array 5
+#define cJSON_Object 6
+	
+#define cJSON_IsReference 256
+#define cJSON_StringIsConst 512
+  
+  
+  
+  
+  typedef struct cJSON {
+	struct cJSON *next,*prev;	/* next/prev allow you to walk array/object chains. Alternatively, use GetArraySize/GetArrayItem/GetObjectItem */
+	struct cJSON *child;		/* An array or object item will have a child pointer pointing to a chain of the items in the array/object. */
+
+	int type;					/* The type of the item, as above. */
+
+	char *valuestring;			/* The item's string, if type==cJSON_String */
+	int valueint;				/* The item's number, if type==cJSON_Number */
+	double valuedouble;			/* The item's number, if type==cJSON_Number */
+
+	char *string;				/* The item's name string, if this item is the child of, or is in the list of subitems of an object. */
+} cJSON;
+  
+  1. doit(text1);              /*将一系列文件导入，交给doit函数解析*/
+  2.json=cJSON_Parse(text);  /*提供一个JSON块，这将返回一个可以查询的cJSON对象。完成后调用cJSON_Delete*/
+  3.cJSON *cJSON_Parse(const char *value) {return cJSON_ParseWithOpts(value,0,0);}/*允许您要求（并检查）JSON是否以空结尾，并检索指向解析的最终字节的指针*/
+  4.cJSON *cJSON_ParseWithOpts(const char *value,const char **return_parse_end,int require_null_terminated) /*分析一个对象-创建一个新的根，并填充。*/
+  /*先利用cJson_New_Item() 分配内存空间包括初始化。如果内存分配失败则返回退出。成功指针开始扫描文本 const* skip(const char in)跳过跳转空白和cr/lf。*/
+  5.cJSON_Delete  /*删除cJSON实体和所有子实体*/
+  void cJSON_Delete(cJSON *c) //这是一个递归删除
+{
+	cJSON *next;
+	while (c)
+	{
+		next=c->next;
+		if (!(c->type&cJSON_IsReference) && c->child) cJSON_Delete(c->child); //当 c->type 与cJSON_	IsReference 同或 即类型相匹配 且还有后继字符则继续删除
+		if (!(c->type&cJSON_IsReference) && c->valuestring) cJSON_free(c->valuestring); //如果数据类型是valuestring 类型 则释放空间
+		if (!(c->type&cJSON_StringIsConst) && c->string) cJSON_free(c->string);//如果是string 类型则释放string类型数据
+		cJSON_free(c);
+		c=next;
+	}
+}
+
+6.static const char *parse_value(cJSON *item,const char *value)/*解析器核心代码，遇到文本适当处理*/
+{
+	if (!value)						return 0;	/* Fail on null. */
+	if (!strncmp(value,"null",4))	{ item->type=cJSON_NULL;  return value+4; }
+	if (!strncmp(value,"false",5))	{ item->type=cJSON_False; return value+5; }
+	if (!strncmp(value,"true",4))	{ item->type=cJSON_True; item->valueint=1;	return value+4; }
+	if (*value=='\"')				{ return parse_string(item,value); }
+	if (*value=='-' || (*value>='0' && *value<='9'))	{ return parse_number(item,value); }
+	if (*value=='[')				{ return parse_array(item,value); }
+	if (*value=='{')				{ return parse_object(item,value); }
+
+	ep=value;return 0;	/* failure. */
+}
+7./*文本是数字的情况*/
+static const char *parse_number(cJSON *item,const char *num)
+{
+	double n=0,sign=1,scale=0;int subscale=0,signsubscale=1;
+
+	if (*num=='-') sign=-1,num++;	/* Has sign? */
+	if (*num=='0') num++;			/* is zero */
+	if (*num>='1' && *num<='9')	do	n=(n*10.0)+(*num++ -'0');	while (*num>='0' && *num<='9');	/* Number? */
+	if (*num=='.' && num[1]>='0' && num[1]<='9') {num++;		do	n=(n*10.0)+(*num++ -'0'),scale--; while (*num>='0' && *num<='9');}	/* Fractional part? */
+	if (*num=='e' || *num=='E')		/* Exponent? */
+	{	num++;if (*num=='+') num++;	else if (*num=='-') signsubscale=-1,num++;		/* With sign? */
+		while (*num>='0' && *num<='9') subscale=(subscale*10)+(*num++ - '0');	/* Number? */
+	}
+
+	n=sign*n*pow(10.0,(scale+subscale*signsubscale));	/* number = +/- number.fraction * 10^+/- exponent */
+	
+	item->valuedouble=n;
+	item->valueint=(int)n;
+	item->type=cJSON_Number;
+	return num;
+}
